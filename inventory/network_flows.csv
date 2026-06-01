@@ -1,0 +1,6 @@
+Source_IP,Source_Port,Destination_IP,Destination_Port,Protocol,Traffic_Type
+10.100.10.5,49210,10.100.10.20,8080,TCP,Inbound_Ingress
+10.100.10.20,53211,10.100.20.5,5432,TCP,Database_Postgres
+10.100.10.20,53212,10.100.20.10,3306,TCP,Database_MySQL
+10.100.10.20,44321,172.217.16.142,443,TCP,Outbound_Egress_API
+10.100.10.20,39100,10.100.50.4,389,TCP,Unknown_Traffic
