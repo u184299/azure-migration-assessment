@@ -1,0 +1,119 @@
+name: Enterprise Multi-Stack Azure Migration Pipeline
+trigger:
+  branches:
+    include:
+      - main
+      - release/*
+
+variables:
+  azureServiceConnection: 'sc-azure-migration-enterprise'
+  resourceGroupName: 'rg-enterprise-migration-prod-001'
+  location: 'eastus2'
+  acrName: 'acrenterprisemigrationprod001'
+
+stages:
+  # =========================================================================
+  # Stage 1: Static Code Analysis, Linting, & Pre-Flight Validation
+  # =========================================================================
+  - stage: Validation_And_Linting
+    displayName: '1. Linting & Validation Stage'
+    jobs:
+      - job: Code_Sanitization_Checks
+        displayName: 'Run Framework Linter Suite'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '3.11'
+          - script: |
+              echo "[*] Checking Python FastAPI application formatting..."
+              pip install flake8
+              flake8 app/msdocs-fastapi-postgresql-sample-app/ --count --select=E9,F63,F7,F82 --show-source --statistics
+            displayName: 'Python Static Analysis Gate'
+
+      - job: IaC_Bicep_Preflight
+        displayName: 'Validate Azure Bicep Topology'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                echo "[*] Initiating Azure Bicep Compilation and Pre-flight Linting..."
+                az bicep build --file infra/main.bicep
+                echo "[*] Executing Subscription-Scoped What-If Architecture Analysis..."
+                az deployment sub what-if --location $(location) --template-file infra/main.bicep
+            displayName: 'Bicep Compilation & What-If Run'
+
+  # =========================================================================
+  # Stage 2: Parallelized Multi-Stage Container Compilation & Registry Push
+  # =========================================================================
+  - stage: Containerization_Delivery
+    displayName: '2. Multi-Stage Build & ACR Push Stage'
+    dependsOn: Validation_And_Linting
+    condition: succeeded()
+    jobs:
+      - job: Build_Java_Monolith
+        displayName: 'Package & Push Spring Boot App'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: Docker@2
+            displayName: 'Build and Push Java Image to ACR'
+            inputs:
+              command: 'buildAndPush'
+              containerRegistry: '$(azureServiceConnection)'
+              repository: 'primary/spring-petclinic'
+              dockerfile: 'templates/Dockerfile.java'
+              buildContext: '.'
+              tags: |
+                $(Build.BuildId)
+                latest
+
+      - job: Build_Python_API
+        displayName: 'Package & Push FastAPI App'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: Docker@2
+            displayName: 'Build and Push Python Image to ACR'
+            inputs:
+              command: 'buildAndPush'
+              containerRegistry: '$(azureServiceConnection)'
+              repository: 'secondary/fastapi-app'
+              dockerfile: 'templates/Dockerfile.python'
+              buildContext: '.'
+              tags: |
+                $(Build.BuildId)
+                latest
+
+  # =========================================================================
+  # Stage 3: Sovereign Infrastructure Provisioning & Container App Deployment
+  # =========================================================================
+  - stage: Enterprise_Cloud_Deployment
+    displayName: '3. Landing Zone Infrastructure Delivery'
+    dependsOn: Containerization_Delivery
+    condition: succeeded()
+    jobs:
+      - deployment: Provision_And_Deploy_Targets
+        displayName: 'Deploy Secure Target Runtime Architecture'
+        pool:
+          vmImage: 'ubuntu-latest'
+        environment: 'Production-Landing-Zone'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureResourceManagerTemplateDeployment@3
+                  displayName: 'Execute Sovereign Subscription IaC Deployment'
+                  inputs:
+                    deploymentScope: 'Subscription'
+                    azureResourceManagerConnection: '$(azureServiceConnection)'
+                    location: '$(location)'
+                    templateLocation: 'Linked artifact'
+                    csmFile: 'infra/main.bicep'
+                    deploymentMode: 'Incremental'
