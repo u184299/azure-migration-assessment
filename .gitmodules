@@ -1,0 +1,6 @@
+[submodule "app/spring-petclinic"]
+	path = app/spring-petclinic
+	url = https://github.com/u184299/spring-petclinic.git
+[submodule "app/msdocs-fastapi-postgresql-sample-app"]
+	path = app/msdocs-fastapi-postgresql-sample-app
+	url = https://github.com/u184299/msdocs-fastapi-postgresql-sample-app.git
