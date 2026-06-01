@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # --- Tier 1: Java Monolith Data Component ---
+  petclinic-db:
+    image: mysql:8.0
+    container_name: petclinic-db-sim
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: petclinic
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- Tier 2: Containerized Java Monolith Application ---
+  petclinic-app:
+    build:
+      context: .
+      dockerfile: templates/Dockerfile.java
+    container_name: petclinic-app-sim
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=mysql
+      - SPRING_DATASOURCE_URL=jdbc:mysql://petclinic-db:3306/petclinic?useSSL=false
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=root
+    depends_on:
+      petclinic-db:
+        condition: service_healthy
+
+  # --- Tier 3: Python API Data Component ---
+  fastapi-db:
+    image: postgres:15-alpine
+    container_name: fastapi-db-sim
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: securepassword
+      POSTGRES_DB: fastapidb
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- Tier 4: Containerized Python API Application ---
+  fastapi-app:
+    build:
+      context: .
+      dockerfile: templates/Dockerfile.python
+    container_name: fastapi-app-sim
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=fastapi-db
+      - DB_NAME=fastapidb
+      - DB_USER=postgres
+      - DB_PASSWORD=securepassword
+      - DB_PORT=5432
+    depends_on:
+      fastapi-db:
+        condition: service_healthy
